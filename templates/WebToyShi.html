@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>我是玩具</title>
+</head>
+<body>
+    <audio controls autoplay id="player"></audio>
+</body>
+<script type="text/javascript">
+    var ws = new WebSocket("ws://192.168.15.113:8000/toy/5c8230add3620eee457985df");
+    ws.onmessage = function (data) {
+        var rev_msg = JSON.parse(data.data);
+        console.log("消息来自"+rev_msg.from_user);
+        document.getElementById("player").src = "http://192.168.15.113:9527/get_music/" + rev_msg.music
+    }
+</script>
+</html>
+
+

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>我是玩具</title>
+</head>
+<body>
+    <audio controls autoplay id="player"></audio>
+    <p>DeviceKey:<input type="text" id="device_key"><button onclick="on_toy()">玩具开机</button></p>
+    <p>消息来源:<span id="from_user"></span></p>
+    <p><button onclick="start_reco()">开始录制声音</button>&nbsp;&nbsp;&nbsp;&nbsp; <button onclick="recv_message()">收取消息按钮</button></p>
+    <p><button onclick="stop_reco()">发送语音消息</button>&nbsp;&nbsp;&nbsp;&nbsp;<button onclick="send_ai()">发送AI消息</button></p>
+</body>
+<script type="text/javascript" src="/static/jquery-3.3.1.min.js"></script>
+<script type="text/javascript" src="/static/Recorder.js"></script>
+<script type="text/javascript">
+    var ws = null;
+    var toy_id = null;
+    function on_toy() {
+        //device_key
+        var device_key = document.getElementById("device_key").value;
+        $.post("http://192.168.15.88:9527/toy_start",{
+            device_key:device_key
+        },function (data) {
+            console.log(data);
+            document.getElementById("player").src = "http://192.168.15.88:9527/get_music/" + data.music;
+            if(data.toy_id !="None" && data.toy_id){
+                toy_id = data.toy_id;
+                create_ws(toy_id);
+            }
+
+        },"json");
+    }
+
+    function create_ws(toy_id) {
+        ws = new WebSocket("ws://192.168.15.88:8000/toy/"+toy_id);
+        ws.onmessage = function (data) {
+            var rev_msg = JSON.parse(data.data); //{"to_user":toy_id,"music":"abc.mp3"}
+
+            console.log("消息来自"+rev_msg.from_user);
+            if(rev_msg.music){
+                document.getElementById("player").src = "http://192.168.15.88:9527/get_music/" + rev_msg.music
+            }else{
+                document.getElementById("from_user").innerText = rev_msg.from_user;
+                document.getElementById("player").src = "http://192.168.15.88:9527/get_chat/" + rev_msg.chat
+            }
+
+        }
+        ws.onclose = function () {
+            create_ws(toy_id);
+        }
+    }
+
+
+    var reco = null;
+    var audio_context = new AudioContext();//音频内容对象
+    navigator.getUserMedia = (navigator.getUserMedia ||
+        navigator.webkitGetUserMedia ||
+        navigator.mozGetUserMedia ||
+        navigator.msGetUserMedia);
+
+    navigator.getUserMedia({audio: true}, create_stream, function (err) {
+        console.log(err)
+    });
+
+    function create_stream(user_media) {
+        var stream_input = audio_context.createMediaStreamSource(user_media);
+        reco = new Recorder(stream_input);
+    }
+
+
+    function start_reco() {
+        reco.record();
+    }
+
+    function stop_reco() {
+        reco.stop();
+        reco.exportWAV(function (wav_file) {
+            console.log(wav_file);
+            var formdata = new FormData(); // form 表单 {key:value}
+            formdata.append("reco",wav_file); // form input type="file"
+            var from_user = document.getElementById("from_user").innerText;
+            var to_user = toy_id;
+            formdata.append("from_user",to_user);
+            formdata.append("to_user",from_user);
+            $.ajax({
+            url: "http://192.168.15.88:9527/upload_toy",
+            type: 'post',
+            processData: false,
+            contentType: false,
+            data: formdata,
+            dataType: 'json',
+            success: function (data) {
+                console.log(data);
+                //拼凑 消息字符串
+                var send_str={
+                    from_user:toy_id,
+                    to_user:document.getElementById("from_user").innerText,
+                    message:data.data.filename
+                };
+                ws.send(JSON.stringify(send_str));
+                document.getElementById("player").src = "http://192.168.15.88:9527/get_music/sendMessage.mp3";
+            }
+            })
+        });
+
+        reco.clear();
+    }
+
+    function recv_message() {
+        $.post("http://192.168.15.88:9527/recv_message",{
+            from_user:document.getElementById("from_user").innerText,
+            to_user:toy_id
+        },function (data) {
+            var player = document.getElementById("player");
+            player.src = "http://192.168.15.88:9527/get_chat/" + data.pop().message;
+
+            player.onended = function(){
+                if(data.length==0){
+                    return
+                }
+                player.src = "http://192.168.15.88:9527/get_chat/" + data.pop().message;
+            };
+
+        },"json")
+    }
+
+    function send_ai() {
+        reco.stop();
+        reco.exportWAV(function (wav_file) {
+            console.log(wav_file);
+            var formdata = new FormData(); // form 表单 {key:value}
+            formdata.append("reco",wav_file); // form input type="file"
+            // var from_user = document.getElementById("from_user").innerText;
+            // var to_user = toy_id;
+            // formdata.append("from_user",to_user);
+            formdata.append("toy_id",toy_id);
+            $.ajax({
+            url: "http://192.168.15.88:9527/upload_ai",
+            type: 'post',
+            processData: false,
+            contentType: false,
+            data: formdata,
+            dataType: 'json',
+            success: function (data) {
+                console.log(data);
+                if(data.filename){
+                    document.getElementById("from_user").innerText = data.friend_id;
+                    document.getElementById("player").src = "http://192.168.15.88:9527/get_chat/" + data.filename;
+                }else{
+                    document.getElementById("from_user").innerText = "AI";
+                    document.getElementById("player").src = "http://192.168.15.88:9527/get_music/" + data.music;
+                }
+
+            }
+            })
+        });
+
+        reco.clear();
+    }
+
+</script>
+</html>
